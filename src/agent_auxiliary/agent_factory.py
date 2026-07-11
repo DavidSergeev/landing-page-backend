@@ -1,8 +1,6 @@
 from enum import Enum
 from typing import Union
-from agents_research.agents.react_agent import ReactAgent
-from agents_research.agents.reflexion_agent import ReflexionAgent
-from agents_research.agents.plan_execute_agent import PlanAndExecuteAgent
+from src.agents.react_agent import ReactAgent
 
 
 class AgentPattern(Enum):
@@ -18,7 +16,7 @@ def create_agent(
     pattern: AgentPattern,
     model_name: str = "gpt-4",
     temperature: float = 0.7
-) -> Union[ReactAgent, ReflexionAgent, PlanAndExecuteAgent]:
+) -> Union[ReactAgent]:
     """
     Factory function to create an agent with the specified pattern.
     
@@ -45,10 +43,6 @@ def create_agent(
     """
     if pattern == AgentPattern.REACT:
         return ReactAgent(model_name=model_name, temperature=temperature)
-    elif pattern == AgentPattern.REFLEXION:
-        return ReflexionAgent(model_name=model_name, temperature=temperature)
-    elif pattern == AgentPattern.PLAN_AND_EXECUTE:
-        return PlanAndExecuteAgent(model_name=model_name, temperature=temperature)
     else:
         raise ValueError(f"Unknown agent pattern: {pattern}")
 
