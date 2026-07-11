@@ -47,12 +47,47 @@ Resources:
       Environment:
         Variables:
           GOOGLE_API_KEY: !Ref GoogleApiKey
+          CONFIG_TABLE_NAME: !Ref ConfigTable
+          MEETINGS_TABLE_NAME: !Ref MeetingsTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ConfigTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref MeetingsTable
       # Keep Lambda warm on free tier (optional — remove if you prefer cold starts)
       # Events:
       #   KeepWarm:
       #     Type: Schedule
       #     Properties:
       #       Schedule: rate(5 minutes)
+
+  ConfigTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: landing-config
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: config_key
+          AttributeType: S
+      KeySchema:
+        - AttributeName: config_key
+          KeyType: HASH
+
+  MeetingsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: landing-meetings
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: meeting_id
+          AttributeType: S
+        - AttributeName: scheduled_at
+          AttributeType: S
+      KeySchema:
+        - AttributeName: meeting_id
+          KeyType: HASH
+        - AttributeName: scheduled_at
+          KeyType: RANGE
 
 Outputs:
   ChatFunctionUrl:

@@ -46,17 +46,17 @@ def list_available_patterns():
             "ReAct (Reasoning + Acting): The agent alternates between reasoning "
             "about what to do next and taking actions using available tools. "
             "Best for: Tasks requiring iterative tool use and dynamic decision-making."
-        ),
-        AgentPattern.REFLEXION: (
-            "Reflexion: The agent reflects on its previous attempts, learns from "
-            "mistakes, and adjusts its approach accordingly. "
-            "Best for: Complex problems that may require multiple attempts to solve correctly."
-        ),
-        AgentPattern.PLAN_AND_EXECUTE: (
-            "Plan-and-Execute: The agent first creates a comprehensive plan, "
-            "then executes it step by step, adapting as needed. "
-            "Best for: Multi-step tasks with clear sequential dependencies."
         )
+        # AgentPattern.REFLEXION: (
+        #     "Reflexion: The agent reflects on its previous attempts, learns from "
+        #     "mistakes, and adjusts its approach accordingly. "
+        #     "Best for: Complex problems that may require multiple attempts to solve correctly."
+        # ),
+        # AgentPattern.PLAN_AND_EXECUTE: (
+        #     "Plan-and-Execute: The agent first creates a comprehensive plan, "
+        #     "then executes it step by step, adapting as needed. "
+        #     "Best for: Multi-step tasks with clear sequential dependencies."
+        # )
     }
 
 

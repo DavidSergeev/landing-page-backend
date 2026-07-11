@@ -2,7 +2,8 @@
 Lambda streaming handler for the personal AI assistant chat endpoint.
 
 Invoked via a Lambda Function URL configured with InvokeMode: RESPONSE_STREAM.
-Tokens from Gemini are forwarded to the client as Server-Sent Events (SSE).
+The ReAct agent processes the full query (reason → act → finalize) and the
+final answer is forwarded to the client as a single Server-Sent Event (SSE).
 
 Frontend consumes the stream using the fetch() streaming API (not EventSource,
 because Lambda Function URLs require POST):
@@ -21,71 +22,86 @@ because Lambda Function URLs require POST):
         // parse SSE lines: "data: {...}\\n\\n"
     }
 """
+import asyncio
 import json
 from awslambdaric.bootstrap import streamify
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_core.messages import SystemMessage, HumanMessage
+from dotenv import load_dotenv
+from src.agent_auxiliary.agent_factory import AgentPattern, create_agent
+from src.agents.react_agent import ReactAgent
 import src.resources.constants as constant
 from src.service_utils.logger import get_logger
-from dotenv import load_dotenv
 
 load_dotenv()
-logger = get_logger()
-
-# Initialized once per Lambda container — reused on warm invocations
-_llm = ChatGoogleGenerativeAI(
-    model=constant.DEFAULT_MODEL,
-    temperature=constant.DEFAULT_TEMPERATURE,
-)
 
 
-def _build_messages(query: str) -> list:
-    return [
-        SystemMessage(content=constant.SYSTEM_PROMPT),
-        HumanMessage(content=query),
-    ]
+class ChatHandler:
+    """
+    Owns a warm ReactAgent instance and handles Lambda streaming invocations.
+    Created once per Lambda container — reused on warm invocations.
+    """
+
+    def __init__(self) -> None:
+        self._agent: ReactAgent = create_agent(
+            AgentPattern.REACT,
+            model=constant.DEFAULT_MODEL,
+            temperature=constant.DEFAULT_TEMPERATURE,
+        )
+        self._logger = get_logger()
+
+    def handle(self, event: dict, context: object, response_stream) -> None:
+        """
+        Core Lambda handler. Runs the ReAct agent and writes SSE frames to response_stream.
+
+        Each token chunk: b"data: {json}\\n\\n"
+        Final chunk:      b"data: [DONE]\\n\\n"
+        """
+        try:
+            query = self._parse_query(event)
+            if not query:
+                self._write_sse(response_stream, b'data: {"error": "Missing or empty query"}\n\n')
+                self._write_sse(response_stream, b"data: [DONE]\n\n")
+                return
+
+            answer = asyncio.run(self._agent.run(query))
+            payload = json.dumps({"token": answer})
+            self._write_sse(response_stream, f"data: {payload}\n\n".encode("utf-8"))
+            self._write_sse(response_stream, b"data: [DONE]\n\n")
+
+        except Exception as e:
+            self._logger.error("Streaming error: %s", e)
+            self._write_sse(response_stream, b'data: {"error": "Internal server error"}\n\n')
+            self._write_sse(response_stream, b"data: [DONE]\n\n")
+
+    def _parse_query(self, event: dict) -> str:
+        """Extract and strip the query string from the Lambda event body."""
+        body = json.loads(event.get("body") or "{}")
+        return body.get("query", "").strip()
+
+    def _write_sse(self, stream, payload: bytes) -> None:
+        """Write a single SSE frame to the response stream."""
+        stream.write(payload)
+
+
+# Created once per Lambda cold start — reused on warm invocations.
+_chat_handler = ChatHandler()
 
 
 def _streaming_handler(event: dict, context: object, response_stream) -> None:
-    """
-    Core Lambda handler. Writes SSE-formatted chunks to response_stream.
-
-    Each chunk: b"data: {json}\\n\\n"
-    Final chunk: b"data: [DONE]\\n\\n"
-    """
-    try:
-        body = json.loads(event.get("body") or "{}")
-        query: str = body.get("query", "").strip()
-
-        if not query:
-            response_stream.write(b'data: {"error": "Missing or empty query"}\n\n')
-            response_stream.write(b"data: [DONE]\n\n")
-            return
-
-        for chunk in _llm.stream(_build_messages(query)):
-            if chunk.content:
-                payload = json.dumps({"token": chunk.content})
-                response_stream.write(f"data: {payload}\n\n".encode("utf-8"))
-
-        response_stream.write(b"data: [DONE]\n\n")
-
-    except Exception as e:
-        logger.error("Streaming error: %s", e)
-        response_stream.write(b'data: {"error": "Internal server error"}\n\n')
-        response_stream.write(b"data: [DONE]\n\n")
+    _chat_handler.handle(event, context, response_stream)
 
 
-# streamify wraps the handler so the Lambda runtime uses RESPONSE_STREAM mode
+# streamify wraps the handler so the Lambda runtime uses RESPONSE_STREAM mode.
 handler = streamify(_streaming_handler)
 
 
 if __name__ == "__main__":
-    # Local smoke test — prints streamed tokens to stdout (no Lambda runtime needed)
-    load_dotenv()
+    import io
+
+    class _MockStream:
+        def write(self, data: bytes) -> None:
+            print(data.decode("utf-8"), end="")
+
     test_query = "Hello! Who are you and what can you help me with?"
-    llm = ChatGoogleGenerativeAI(model=constant.DEFAULT_MODEL, temperature=constant.DEFAULT_TEMPERATURE)
-    print(f"Query: {test_query}\nResponse: ", end="", flush=True)
-    for chunk in llm.stream(_build_messages(test_query)):
-        if chunk.content:
-            print(chunk.content, end="", flush=True)
-    print()
+    mock_event = {"body": json.dumps({"query": test_query})}
+    print(f"Query: {test_query}\nResponse:\n")
+    _chat_handler.handle(mock_event, None, _MockStream())
