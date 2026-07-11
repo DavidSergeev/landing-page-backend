@@ -50,10 +50,14 @@ class ChatHandler:
 
     def handle(self, event: dict, context: object, response_stream) -> None:
         """
-        Core Lambda handler. Runs the ReAct agent and writes SSE frames to response_stream.
+        Core Lambda handler. Streams intermediate agent state events and the final
+        answer to the client as SSE frames.
 
-        Each token chunk: b"data: {json}\\n\\n"
-        Final chunk:      b"data: [DONE]\\n\\n"
+        Frame shapes:
+          data: {"type": "reasoning", "thought": "...", "iteration": N}
+          data: {"type": "acting",    "tool": "...", "input": "..."}
+          data: {"type": "answer",    "token": "..."}
+          data: [DONE]
         """
         try:
             query = self._parse_query(event)
@@ -62,15 +66,19 @@ class ChatHandler:
                 self._write_sse(response_stream, b"data: [DONE]\n\n")
                 return
 
-            answer = asyncio.run(self._agent.run(query))
-            payload = json.dumps({"token": answer})
-            self._write_sse(response_stream, f"data: {payload}\n\n".encode("utf-8"))
-            self._write_sse(response_stream, b"data: [DONE]\n\n")
+            asyncio.run(self._run_stream(query, response_stream))
 
         except Exception as e:
             self._logger.error("Streaming error: %s", e)
             self._write_sse(response_stream, b'data: {"error": "Internal server error"}\n\n')
             self._write_sse(response_stream, b"data: [DONE]\n\n")
+
+    async def _run_stream(self, query: str, response_stream) -> None:
+        """Drive astream_events and forward each event as an SSE frame."""
+        async for event in self._agent.astream_events(query):
+            payload = json.dumps(event)
+            self._write_sse(response_stream, f"data: {payload}\n\n".encode("utf-8"))
+        self._write_sse(response_stream, b"data: [DONE]\n\n")
 
     def _parse_query(self, event: dict) -> str:
         """Extract and strip the query string from the Lambda event body."""

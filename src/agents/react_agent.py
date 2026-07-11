@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, AsyncGenerator
 from langgraph.graph import StateGraph, END
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -142,18 +142,43 @@ class ReactAgent:
         return {"answer": answer}
     
     async def run(self, query: str, max_iterations: int = 10) -> str:
-        """
-        Run the ReAct agent on a query.
-        
-        Args:
-            query: The user's question
-            max_iterations: Maximum number of reasoning iterations
-            
-        Returns:
-            The agent's answer
-        """
+        """Run the ReAct agent on a query and return the final answer."""
         initial_state = get_initial_state(query=query, max_iterations=max_iterations)
-        
         result = await self._graph.ainvoke(initial_state)
         return result["answer"]
+
+    async def astream_events(
+        self, query: str, max_iterations: int = 10
+    ) -> AsyncGenerator[dict[str, Any], None]:
+        """
+        Stream intermediate agent state events as the graph executes.
+
+        Yields one dict per node completion:
+          - {type: "reasoning", thought: str, iteration: int}
+          - {type: "acting",   tool: str, input: str}
+          - {type: "answer",   token: str}
+        """
+        initial_state = get_initial_state(query=query, max_iterations=max_iterations)
+        last_action: str = ""
+        last_action_input: str = ""
+
+        async for chunk in self._graph.astream(initial_state):
+            node_name, update = next(iter(chunk.items()))
+
+            if node_name == constant.REASON:
+                last_action = update.get("action") or ""
+                last_action_input = update.get("action_input") or ""
+                yield {
+                    "type": "reasoning",
+                    "thought": update.get("thought", ""),
+                    "iteration": update.get("iterations", 0),
+                }
+            elif node_name == constant.ACT:
+                yield {
+                    "type": "acting",
+                    "tool": last_action,
+                    "input": last_action_input,
+                }
+            elif node_name == constant.FINALIZE:
+                yield {"type": "answer", "token": update.get("answer", "")}
 
