@@ -12,6 +12,13 @@ Parameters:
     Default: /landing/google-api-key
     Description: SSM Parameter Store path for the Google Gemini API key
 
+  SysPromptVersion:
+    Type: Number
+    Default: "1"
+    Description: >
+      Version of the system prompt to load from DynamoDB.
+      The Lambda will fetch the item with key "system_prompt_v<N>" from the config table.
+
 Globals:
   Function:
     Runtime: python3.12
@@ -49,6 +56,7 @@ Resources:
           GOOGLE_API_KEY: !Ref GoogleApiKey
           CONFIG_TABLE_NAME: !Ref ConfigTable
           MEETINGS_TABLE_NAME: !Ref MeetingsTable
+          SYS_PROMPT_VERSION: !Ref SysPromptVersion
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref ConfigTable

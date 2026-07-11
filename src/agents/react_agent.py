@@ -1,4 +1,6 @@
 from typing import Any, AsyncGenerator
+import os
+import uuid
 from langgraph.graph import StateGraph, END
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -6,9 +8,9 @@ from src.service_utils.logger import get_logger
 from src.agent_auxiliary.agent_state import AgentState
 from src.agent_auxiliary.utils import get_initial_state, parse_llm_response
 from src.agent_tools.tools_auxiliary import get_tools
+from src.db.config_repository import get_system_prompt
 import src.resources.constants as constant
 from dotenv import load_dotenv
-import uuid
 
 
 class ReactAgent:
@@ -21,7 +23,24 @@ class ReactAgent:
         self._logger = get_logger()
         self._tools = get_tools()
         self._tool_dict = {tool.name: tool for tool in self._tools}
+        self._system_prompt = self._load_system_prompt()
         self._graph = self._build_graph()
+
+    def _load_system_prompt(self) -> str:
+        """Load system prompt from DynamoDB by SYS_PROMPT_VERSION env var; falls back to constant."""
+        raw = os.environ.get("SYS_PROMPT_VERSION", "")
+        if raw.isdigit():
+            version = int(raw)
+            prompt = get_system_prompt(version)
+            if prompt:
+                self._logger.info("Loaded system prompt version %d from DynamoDB", version)
+                return prompt
+            self._logger.warning(
+                "System prompt v%d not found in DynamoDB, using built-in fallback", version
+            )
+        else:
+            self._logger.warning("SYS_PROMPT_VERSION not set or invalid, using built-in fallback")
+        return constant.SYSTEM_PROMPT
 
     def bind(self, temperature=None, model=None):
         params = dict[Any, Any]()
@@ -72,7 +91,7 @@ class ReactAgent:
                 f"- {tool.name}: {tool.description}"
                 for tool in self._tools
             ])
-            system_prompt = constant.SYSTEM_PROMPT + "\n\nAvailable tools:\n" + tool_descriptions
+            system_prompt = self._system_prompt + "\n\nAvailable tools:\n" + tool_descriptions
             state_messages = [SystemMessage(content=system_prompt), HumanMessage(content=state.input)]
             messages_to_merge = state_messages
 

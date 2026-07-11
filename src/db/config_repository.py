@@ -23,6 +23,11 @@ def get_config(config_key: str) -> Optional[str]:
     return item.get("value")
 
 
+def get_system_prompt(version: int) -> Optional[str]:
+    """Fetch the system prompt for the given version (e.g. version=1 → key 'system_prompt_v1')."""
+    return get_config(f"system_prompt_v{version}")
+
+
 def set_config(config_key: str, value: str) -> None:
     """Insert or overwrite a config item."""
     table = get_table(_TABLE_ENV_VAR)
