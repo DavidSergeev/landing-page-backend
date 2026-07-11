@@ -8,9 +8,10 @@ from src.agent_auxiliary.utils import get_initial_state, parse_llm_response
 from src.agent_tools.tools_auxiliary import get_tools
 import src.resources.constants as constant
 from dotenv import load_dotenv
-import uuid                         #gemini-2.5-flash
-                                    #gemini-3.1-flash-lite-preview
-class ReactAgent:                   #gemini-2.5-flash
+import uuid
+
+
+class ReactAgent:
     def __init__(self, model: str = "gemini-3-flash-preview", temperature: float = 0.7):
         load_dotenv()
         self._llm = ChatGoogleGenerativeAI(
@@ -71,7 +72,7 @@ class ReactAgent:                   #gemini-2.5-flash
                 f"- {tool.name}: {tool.description}"
                 for tool in self._tools
             ])
-            system_prompt = prompt.SCRAPING_RESEARCHER_STARTER_V1 % tool_descriptions
+            system_prompt = constant.SYSTEM_PROMPT + "\n\nAvailable tools:\n" + tool_descriptions
             state_messages = [SystemMessage(content=system_prompt), HumanMessage(content=state.input)]
             messages_to_merge = state_messages
 
@@ -83,7 +84,7 @@ class ReactAgent:                   #gemini-2.5-flash
                     content=state.observation,
                     tool_call_id=state.tool_call_id
                 )
-                human_message = HumanMessage(content=prompt.OBSERVER_CONTENT)
+                human_message = HumanMessage(content=constant.OBSERVER_CONTENT)
                 state_messages.append(tool_msg)
                 state_messages.append(human_message)
                 messages_to_merge.append(tool_msg)

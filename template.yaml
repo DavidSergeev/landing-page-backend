@@ -1,0 +1,65 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+
+Description: >
+  Landing page personal AI assistant backend.
+  Exposes a Lambda Function URL with RESPONSE_STREAM mode so Gemini tokens
+  are forwarded to the browser as Server-Sent Events (SSE).
+
+Parameters:
+  GoogleApiKey:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /landing/google-api-key
+    Description: SSM Parameter Store path for the Google Gemini API key
+
+Globals:
+  Function:
+    Runtime: python3.12
+    # 60 s gives the model enough time to finish a long response
+    Timeout: 60
+    # 256 MB is sufficient; LangChain + Gemini client are lightweight
+    MemorySize: 256
+
+Resources:
+  ChatFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: landing-page-chat
+      Handler: src/main.handler
+      CodeUri: .
+      Description: Streaming SSE chat handler powered by Gemini
+      FunctionUrlConfig:
+        AuthType: NONE
+        # RESPONSE_STREAM allows the Lambda to push chunks as they arrive
+        # instead of buffering the entire response
+        InvokeMode: RESPONSE_STREAM
+        Cors:
+          AllowCredentials: false
+          AllowHeaders:
+            - content-type
+          AllowMethods:
+            - POST
+            - OPTIONS
+          AllowOrigins:
+            # GitHub Pages frontend — update if your domain changes
+            - "https://DavidSergeev.github.io"
+          MaxAge: 86400
+      Environment:
+        Variables:
+          GOOGLE_API_KEY: !Ref GoogleApiKey
+      # Keep Lambda warm on free tier (optional — remove if you prefer cold starts)
+      # Events:
+      #   KeepWarm:
+      #     Type: Schedule
+      #     Properties:
+      #       Schedule: rate(5 minutes)
+
+Outputs:
+  ChatFunctionUrl:
+    Description: >
+      Lambda Function URL — paste this into your frontend as the chat endpoint.
+      If Cloudflare is in front, point your Cloudflare DNS to this URL instead.
+    Value: !GetAtt ChatFunctionUrl.FunctionUrl
+  ChatFunctionArn:
+    Description: Lambda function ARN
+    Value: !GetAtt ChatFunction.Arn

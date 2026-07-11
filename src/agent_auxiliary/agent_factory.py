@@ -14,35 +14,22 @@ class AgentPattern(Enum):
 
 def create_agent(
     pattern: AgentPattern,
-    model_name: str = "gpt-4",
+    model: str = "gemini-2.0-flash",
     temperature: float = 0.7
 ) -> Union[ReactAgent]:
     """
     Factory function to create an agent with the specified pattern.
-    
+
     Args:
-        pattern: The agent pattern to use (ReAct, Reflexion, or Plan-and-Execute)
-        model_name: Name of the OpenAI model to use (default: "gpt-4")
-        temperature: Temperature for LLM generation (default: 0.7)
-    
+        pattern: The agent pattern to use
+        model: Gemini model name (default: gemini-2.0-flash)
+        temperature: LLM temperature (default: 0.7)
+
     Returns:
         An instance of the specified agent type
-    
-    Example:
-        >>> from agent_factory import create_agent, AgentPattern
-        >>> 
-        >>> # Create a ReAct agent
-        >>> agent = create_agent(AgentPattern.REACT, model_name="gpt-4")
-        >>> result = agent.run("What is 25 * 17?")
-        >>> print(result)
-        >>> 
-        >>> # Create a Reflexion agent
-        >>> reflexion_agent = create_agent(AgentPattern.REFLEXION)
-        >>> result = reflexion_agent.run("Solve this problem...")
-        >>> print(result)
     """
     if pattern == AgentPattern.REACT:
-        return ReactAgent(model_name=model_name, temperature=temperature)
+        return ReactAgent(model=model, temperature=temperature)
     else:
         raise ValueError(f"Unknown agent pattern: {pattern}")
 
