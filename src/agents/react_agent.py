@@ -1,6 +1,7 @@
 from typing import Any, AsyncGenerator
 import os
 import uuid
+import boto3
 from langgraph.graph import StateGraph, END
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -16,11 +17,12 @@ from dotenv import load_dotenv
 class ReactAgent:
     def __init__(self, model: str = "gemini-3-flash-preview", temperature: float = 0.7):
         load_dotenv()
+        self._logger = get_logger()
+        self._load_google_api_key()
         self._llm = ChatGoogleGenerativeAI(
             model=model,
             temperature=temperature
         )
-        self._logger = get_logger()
         self._tools = get_tools()
         self._tool_dict = {tool.name: tool for tool in self._tools}
         self._system_prompt = self._load_system_prompt()
@@ -41,6 +43,29 @@ class ReactAgent:
         else:
             self._logger.warning("SYS_PROMPT_VERSION not set or invalid, using built-in fallback")
         return constant.SYSTEM_PROMPT
+
+    def _load_google_api_key(self) -> None:
+        """Load the Google API key from SSM if GOOGLE_API_KEY is not already set."""
+        if os.environ.get("GOOGLE_API_KEY"):
+            return
+
+        parameter_path = os.environ.get("GOOGLE_API_KEY_PATH", "").strip()
+        if not parameter_path:
+            self._logger.warning("GOOGLE_API_KEY_PATH is not set; using existing environment value if any")
+            return
+
+        try:
+            client = boto3.client("ssm")
+            response = client.get_parameter(Name=parameter_path, WithDecryption=True)
+            secret = response["Parameter"]["Value"]
+            os.environ["GOOGLE_API_KEY"] = secret
+            self._logger.info("Loaded Google API key from SSM path %s", parameter_path)
+        except Exception as exc:
+            self._logger.error(
+                "Failed to load Google API key from SSM (%s): %s",
+                parameter_path,
+                exc,
+            )
 
     def bind(self, temperature=None, model=None):
         params = dict[Any, Any]()

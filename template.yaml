@@ -8,8 +8,8 @@ Description: >
 
 Parameters:
   GoogleApiKey:
-    Type: AWS::SSM::Parameter::Value<String>
-    Default: /landing/google-api-key
+    Type: String
+    Default: /landing/gemini-api-key
     Description: SSM Parameter Store path for the Google Gemini API key
 
   SysPromptVersion:
@@ -46,28 +46,62 @@ Resources:
             - content-type
           AllowMethods:
             - POST
-            - OPTIONS
           AllowOrigins:
             # GitHub Pages frontend — update if your domain changes
             - "https://DavidSergeev.github.io"
           MaxAge: 86400
+      Role: !GetAtt ChatFunctionRole.Arn
       Environment:
         Variables:
-          GOOGLE_API_KEY: !Ref GoogleApiKey
+          GOOGLE_API_KEY_PATH: !Ref GoogleApiKey
           CONFIG_TABLE_NAME: !Ref ConfigTable
           MEETINGS_TABLE_NAME: !Ref MeetingsTable
           SYS_PROMPT_VERSION: !Ref SysPromptVersion
-      Policies:
-        - DynamoDBCrudPolicy:
-            TableName: !Ref ConfigTable
-        - DynamoDBCrudPolicy:
-            TableName: !Ref MeetingsTable
       # Keep Lambda warm on free tier (optional — remove if you prefer cold starts)
       # Events:
       #   KeepWarm:
       #     Type: Schedule
       #     Properties:
       #       Schedule: rate(5 minutes)
+
+  ChatFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: ChatFunctionInlinePolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                Resource:
+                  Fn::Sub: arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter${GoogleApiKey}
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                  - dynamodb:BatchGetItem
+                  - dynamodb:BatchWriteItem
+                Resource:
+                  - !GetAtt ConfigTable.Arn
+                  - !GetAtt MeetingsTable.Arn
 
   ConfigTable:
     Type: AWS::DynamoDB::Table
