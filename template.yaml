@@ -32,9 +32,16 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: landing-page-chat
-      Handler: src/main.handler
+      # run.sh starts our FastAPI/uvicorn app; the AWS Lambda Web Adapter (layer
+      # below) execs it and proxies Lambda invocations to it as HTTP requests,
+      # since the managed Python runtime cannot stream responses on its own.
+      Handler: run.sh
       CodeUri: .
       Description: Streaming SSE chat handler powered by Gemini
+      Layers:
+        # AWS Lambda Web Adapter — bridges Function URL RESPONSE_STREAM invocations
+        # to a normal ASGI web server. See https://github.com/aws/aws-lambda-web-adapter
+        - !Sub arn:aws:lambda:${AWS::Region}:753240598075:layer:LambdaAdapterLayerX86:28
       FunctionUrlConfig:
         AuthType: NONE
         # RESPONSE_STREAM allows the Lambda to push chunks as they arrive
@@ -57,6 +64,10 @@ Resources:
           CONFIG_TABLE_NAME: !Ref ConfigTable
           MEETINGS_TABLE_NAME: !Ref MeetingsTable
           SYS_PROMPT_VERSION: !Ref SysPromptVersion
+          # Lambda Web Adapter configuration — must match FunctionUrlConfig.InvokeMode above.
+          AWS_LAMBDA_EXEC_WRAPPER: /opt/bootstrap
+          AWS_LWA_INVOKE_MODE: response_stream
+          PORT: "8000"
       # Keep Lambda warm on free tier (optional — remove if you prefer cold starts)
       # Events:
       #   KeepWarm:
