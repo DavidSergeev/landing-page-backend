@@ -30,6 +30,11 @@ Globals:
 Resources:
   ChatFunction:
     Type: AWS::Serverless::Function
+    # Custom build via Makefile — the default Python build workflow doesn't
+    # reliably preserve the executable bit on run.sh, which the Lambda Web
+    # Adapter execs directly on cold start (see Makefile).
+    Metadata:
+      BuildMethod: makefile
     Properties:
       FunctionName: landing-page-chat
       # run.sh starts our FastAPI/uvicorn app; the AWS Lambda Web Adapter (layer
