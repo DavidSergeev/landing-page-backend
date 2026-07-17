@@ -21,7 +21,6 @@ Parameters:
 
 Globals:
   Function:
-    Runtime: python3.12
     # 60 s gives the model enough time to finish a long response
     Timeout: 60
     # 256 MB is sufficient; LangChain + Gemini client are lightweight
@@ -30,23 +29,19 @@ Globals:
 Resources:
   ChatFunction:
     Type: AWS::Serverless::Function
-    # Custom build via Makefile — the default Python build workflow doesn't
-    # reliably preserve the executable bit on run.sh, which the Lambda Web
-    # Adapter execs directly on cold start (see Makefile).
+    # Container image build — `sam build` runs `docker build` against the
+    # Dockerfile below instead of the zip/Makefile workflow. The AWS Lambda
+    # Web Adapter binary is baked into the image (see Dockerfile) rather than
+    # attached as a layer, so the same image also runs unmodified outside
+    # Lambda (ECS/EKS/Fargate/local `docker run`).
     Metadata:
-      BuildMethod: makefile
+      Dockerfile: Dockerfile
+      DockerContext: .
+      DockerTag: latest
     Properties:
       FunctionName: landing-page-chat
-      # run.sh starts our FastAPI/uvicorn app; the AWS Lambda Web Adapter (layer
-      # below) execs it and proxies Lambda invocations to it as HTTP requests,
-      # since the managed Python runtime cannot stream responses on its own.
-      Handler: run.sh
-      CodeUri: .
+      PackageType: Image
       Description: Streaming SSE chat handler powered by Gemini
-      Layers:
-        # AWS Lambda Web Adapter — bridges Function URL RESPONSE_STREAM invocations
-        # to a normal ASGI web server. See https://github.com/aws/aws-lambda-web-adapter
-        - !Sub arn:aws:lambda:${AWS::Region}:753240598075:layer:LambdaAdapterLayerX86:28
       FunctionUrlConfig:
         AuthType: NONE
         # RESPONSE_STREAM allows the Lambda to push chunks as they arrive
@@ -70,9 +65,7 @@ Resources:
           MEETINGS_TABLE_NAME: !Ref MeetingsTable
           SYS_PROMPT_VERSION: !Ref SysPromptVersion
           # Lambda Web Adapter configuration — must match FunctionUrlConfig.InvokeMode above.
-          AWS_LAMBDA_EXEC_WRAPPER: /opt/bootstrap
           AWS_LWA_INVOKE_MODE: response_stream
-          PORT: "8000"
       # Keep Lambda warm on free tier (optional — remove if you prefer cold starts)
       # Events:
       #   KeepWarm:

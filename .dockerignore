@@ -1,0 +1,9 @@
+.git
+.vscode
+.aws-sam
+__pycache__
+*.pyc
+.env
+.venv
+venv
+*.md

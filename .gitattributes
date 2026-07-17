@@ -1,6 +1,0 @@
-# Force LF line endings for files that get exec'd directly (shebang scripts),
-# regardless of the OS/core.autocrlf setting used to check them out.
-# CRLF here corrupts the shebang (e.g. "#!/bin/bash\r") and breaks Lambda's
-# exec of run.sh at cold start ("cannot execute: required file not found").
-*.sh text eol=lf
-Makefile text eol=lf
