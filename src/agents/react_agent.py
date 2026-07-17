@@ -201,7 +201,8 @@ class ReactAgent:
         Stream intermediate agent state events as the graph executes.
 
         Yields one dict per node completion:
-          - {type: "reasoning", thought: str, iteration: int}
+          - {type: "reasoning", thought: str, iteration: int} (only when the reasoning
+            step leads to a tool call; the terminal thought is emitted as "answer" instead)
           - {type: "acting",   tool: str, input: dict}
           - {type: "answer",   token: str}
         """
@@ -215,11 +216,12 @@ class ReactAgent:
             if node_name == constant.REASON:
                 last_tool_name = update.get("tool_name") or ""
                 last_tool_kwargs = update.get("tool_kwargs") or {}
-                yield {
-                    "type": "reasoning",
-                    "thought": update.get("thoughts", ""),
-                    "iteration": update.get("iterations", 0),
-                }
+                if update.get("action_type") == constant.ACT:
+                    yield {
+                        "type": "reasoning",
+                        "thought": update.get("thoughts", ""),
+                        "iteration": update.get("iterations", 0),
+                    }
             elif node_name == constant.ACT:
                 yield {
                     "type": "acting",
