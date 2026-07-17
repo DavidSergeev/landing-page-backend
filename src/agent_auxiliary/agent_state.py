@@ -17,7 +17,7 @@ class AgentState(BaseModel):
     tool_kwargs: dict = Field(default_factory=dict, description="Keyword arguments for the tool call")
     tool_observation: str = Field(default="", description="Result returned by the last tool call")
     tool_call_id: str = Field(default="", description="Unique identifier for tool call")
-    #answer: str = Field(default="", description="Final answer")
+    answer: str = Field(default="", description="Final answer")
     iterations: int = Field(default=0, description="Number of iterations")
     max_iterations: int = Field(default=10, description="Maximum iterations allowed")
 
