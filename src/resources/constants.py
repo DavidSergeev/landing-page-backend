@@ -1,4 +1,4 @@
-DEFAULT_MODEL = "gemini-2.0-flash"
+DEFAULT_MODEL = "gemini-3.1-flash-lite"
 DEFAULT_TEMPERATURE = 0.7
 DEFAULT_MAX_TOKENS = 1024
 LOG_FORMAT = "%(asctime)s | %(levelname)-8s | %(name)s | %(filename)s:%(lineno)d | %(message)s"
@@ -9,7 +9,7 @@ ACT = "act"
 FINALIZE = "finalize"
 CONTINUE = "continue"
 END = "end"
-FINAL_ANSWER = "Final Answer"
+FINAL_ANSWER = "final-answer"
 
 SYSTEM_PROMPT = (
     "You are David's personal AI assistant on his portfolio landing page. "

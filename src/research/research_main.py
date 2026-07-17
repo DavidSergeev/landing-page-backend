@@ -1,21 +1,23 @@
-import requests
+from dotenv import load_dotenv
+from src.agent_auxiliary.agent_factory import AgentPattern, create_agent
+from src.agents.react_agent import ReactAgent
+import src.resources.constants as constant
 from src.service_utils.logger import get_logger
+import asyncio
+load_dotenv()
 
-logger = get_logger()
+async def main():
+    # Created once per Lambda container (or process, when run locally) — reused on warm invocations.
+    agent: ReactAgent = create_agent(
+        AgentPattern.REACT,
+        model=constant.DEFAULT_MODEL,
+        temperature=constant.DEFAULT_TEMPERATURE,
+    )
 
-
-def http_request(url: str) -> str:
-    """Perform a simple HTTP GET and return the response text."""
-    response = requests.get(url, timeout=10)
-    response.raise_for_status()
-    return response.text
-
-
-def main() -> None:
-    """Entry point for research scraping."""
-    response = http_request("https://il.flightnetwork.com/rf/start")
-    logger.info("Response length: %d chars", len(response))
-
+    async for event in agent.astream_events("Hi!", max_iterations=10):
+        print(event)
+        if event.get("type") == "answer":
+            break
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

@@ -20,7 +20,7 @@ def get_config(config_key: str) -> Optional[str]:
     if item is None:
         logger.warning("Config key not found: %s", config_key)
         return None
-    return item.get("value")
+    return item.get("prompt")
 
 
 def get_system_prompt(version: int) -> Optional[str]:

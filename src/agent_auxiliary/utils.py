@@ -23,23 +23,13 @@ def parse_llm_response(llm_response, logger: logging.Logger) -> tuple[str, str |
     action_input: str | None = None
 
     try:
-        content = llm_response.content if isinstance(llm_response.content, str) else str(llm_response)
-        content = content.strip()
 
-        # Strip markdown code fences if the model wraps JSON in them
-        if content.startswith("```"):
-            lines = content.splitlines()
-            content = "\n".join(lines[1:-1]).strip()
-
-        parsed = json.loads(content)
+        deserialized_llm_response = json.loads(llm_response.text)
         thought = parsed.get("thought", constant.FINAL_ANSWER)
         action = parsed.get("action")
         action_input = parsed.get("action_input")
 
-    except (json.JSONDecodeError, AttributeError):
-        # Plain-text response — treat as the final answer text
-        raw = llm_response.content if isinstance(llm_response.content, str) else str(llm_response)
-        action_input = raw.strip()
+
 
     except Exception as e:
         logger.exception("Unexpected error parsing LLM response: %s", e)

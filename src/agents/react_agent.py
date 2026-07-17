@@ -30,7 +30,7 @@ class ReactAgent:
 
     def _load_system_prompt(self) -> str:
         """Load system prompt from DynamoDB by SYS_PROMPT_VERSION env var; falls back to constant."""
-        raw = os.environ.get("SYS_PROMPT_VERSION", "")
+        raw = os.environ.get("SYS_PROMPT_VERSION", "1")
         if raw.isdigit():
             version = int(raw)
             prompt = get_system_prompt(version)
