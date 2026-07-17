@@ -42,7 +42,7 @@ class ReactAgent:
             )
         else:
             self._logger.warning("SYS_PROMPT_VERSION not set or invalid, using built-in fallback")
-        return constant.SYSTEM_PROMPT
+        return constant.DEFAULT_SYSTEM_PROMPT
 
     def _load_google_api_key(self) -> None:
         """Load the Google API key from SSM if GOOGLE_API_KEY is not already set."""
@@ -123,9 +123,9 @@ class ReactAgent:
         else:
             messages_to_merge = []
             state_messages = state.messages
-            if state.observation:
+            if state.tool_observation:
                 tool_msg = ToolMessage(
-                    content=state.observation,
+                    content=state.tool_observation,
                     tool_call_id=state.tool_call_id
                 )
                 human_message = HumanMessage(content=constant.OBSERVER_CONTENT)
@@ -137,12 +137,13 @@ class ReactAgent:
         response = await self._llm.ainvoke(state_messages)
         messages_to_merge.append(response)
 
-        thought, action, action_input = parse_llm_response(response, self._logger)
+        thoughts, action_type, tool_name, tool_kwargs = parse_llm_response(response, self._logger)
         return {
             "messages": messages_to_merge,
-            "thought": thought,
-            "action": action,
-            "action_input": action_input,
+            "thoughts": thoughts,
+            "action_type": action_type,
+            "tool_name": tool_name or "",
+            "tool_kwargs": tool_kwargs,
             "iterations": state.iterations + 1
         }
     
@@ -152,17 +153,17 @@ class ReactAgent:
         """
         tool_call_id = str(uuid.uuid4())
         
-        if state.action in self._tool_dict:
-            tool = self._tool_dict[state.action]
+        if state.tool_name in self._tool_dict:
+            tool = self._tool_dict[state.tool_name]
             try:
-                observation = tool.func(state.action_input)
+                tool_observation = tool.func(**state.tool_kwargs)
             except Exception as e:
-                observation = f"Error executing tool: {str(e)}"
+                tool_observation = f"Error executing tool: {str(e)}"
         else:
-            observation = f"Unknown tool: {state.action}"
+            tool_observation = f"Unknown tool: {state.tool_name}"
         
         return {
-            "observation": observation,
+            "tool_observation": tool_observation,
             "tool_call_id": tool_call_id
         }
     
@@ -170,18 +171,20 @@ class ReactAgent:
         """
         Determines whether to continue reasoning or finalize.
         """
-        if state.action == constant.FINAL_ANSWER or state.iterations >= state.max_iterations:
-            return constant.END
-        return constant.CONTINUE
+        if state.action_type == constant.ACT and state.iterations < state.max_iterations:
+            return constant.CONTINUE
+        return constant.END
     
     async def _finalize_node(self, state: AgentState) -> dict[str, Any]:
         """
         Finalization node: prepares the final answer.
         """
         if state.iterations >= state.max_iterations:
-            answer = f"Maximum iterations reached. Last thought: {state.thought}"
+            answer = f"Maximum iterations reached. Last thought: {state.thoughts}"
         else:
-            answer = state.action_input
+            answer = state.thoughts
+            if answer.startswith(constant.FINAL_ANSWER_PREFIX):
+                answer = answer[len(constant.FINAL_ANSWER_PREFIX):]
         
         return {"answer": answer}
     
@@ -199,29 +202,29 @@ class ReactAgent:
 
         Yields one dict per node completion:
           - {type: "reasoning", thought: str, iteration: int}
-          - {type: "acting",   tool: str, input: str}
+          - {type: "acting",   tool: str, input: dict}
           - {type: "answer",   token: str}
         """
         initial_state = get_initial_state(query=query, max_iterations=max_iterations)
-        last_action: str = ""
-        last_action_input: str = ""
+        last_tool_name: str = ""
+        last_tool_kwargs: dict[str, Any] = {}
 
         async for chunk in self._graph.astream(initial_state):
             node_name, update = next(iter(chunk.items()))
 
             if node_name == constant.REASON:
-                last_action = update.get("action") or ""
-                last_action_input = update.get("action_input") or ""
+                last_tool_name = update.get("tool_name") or ""
+                last_tool_kwargs = update.get("tool_kwargs") or {}
                 yield {
                     "type": "reasoning",
-                    "thought": update.get("thought", ""),
+                    "thought": update.get("thoughts", ""),
                     "iteration": update.get("iterations", 0),
                 }
             elif node_name == constant.ACT:
                 yield {
                     "type": "acting",
-                    "tool": last_action,
-                    "input": last_action_input,
+                    "tool": last_tool_name,
+                    "input": last_tool_kwargs,
                 }
             elif node_name == constant.FINALIZE:
                 yield {"type": "answer", "token": update.get("answer", "")}
