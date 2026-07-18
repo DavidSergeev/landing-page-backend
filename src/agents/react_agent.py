@@ -1,13 +1,14 @@
-from typing import Any, AsyncGenerator
+from typing import Any, AsyncGenerator, Optional
 import os
 import uuid
 import boto3
 from langgraph.graph import StateGraph, END
-from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
+from langgraph.types import StreamWriter
+from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
 from src.service_utils.logger import get_logger
 from src.agent_auxiliary.agent_state import AgentState
-from src.agent_auxiliary.utils import get_initial_state, parse_llm_response
+from src.agent_auxiliary.utils import extract_text_content, get_initial_state
 from src.agent_tools.tools_auxiliary import get_tools
 from src.db.config_repository import get_system_prompt
 import src.resources.constants as constant
@@ -25,12 +26,13 @@ class ReactAgent:
         )
         self._tools = get_tools()
         self._tool_dict = {tool.name: tool for tool in self._tools}
+        self._llm_with_tools = self._llm.bind_tools(self._tools)
         self._system_prompt = self._load_system_prompt()
         self._graph = self._build_graph()
 
     def _load_system_prompt(self) -> str:
         """Load system prompt from DynamoDB by SYS_PROMPT_VERSION env var; falls back to constant."""
-        raw = os.environ.get("SYS_PROMPT_VERSION", "1")
+        raw = os.environ.get("SYS_PROMPT_VERSION", "")
         if raw.isdigit():
             version = int(raw)
             prompt = get_system_prompt(version)
@@ -66,18 +68,6 @@ class ReactAgent:
                 parameter_path,
                 exc,
             )
-
-    def bind(self, temperature=None, model=None):
-        params = dict[Any, Any]()
-        if temperature:
-            params["temperature"] = temperature
-        if model:
-            params["model"] = model
-
-        if not(temperature or model):
-            self._logger.error("Invoking method with both None params")
-
-        self._llm.bind(**params)
         
     def _build_graph(self) -> StateGraph:
         """Build the LangGraph state graph for ReAct pattern."""
@@ -103,21 +93,21 @@ class ReactAgent:
         
         return workflow.compile()
     
-    async def _reason_node(self, state: AgentState) -> dict[str, Any]:
+    async def _reason_node(self, state: AgentState, writer: StreamWriter) -> dict[str, Any]:
         """
-        Reasoning node: decides what action to take next.
+        Reasoning node: streams the LLM's response and decides what to do next.
+
+        Tool-call decisions are resolved natively via `self._llm_with_tools` (tool binding)
+        instead of being parsed from free-form text. The call is always streamed via
+        `astream`; tokens are forwarded live to the SSE client via `writer` as an
+        `{"type": "answer", "token": ...}` custom event as soon as the response is
+        classified as a final answer (i.e. the model isn't streaming a tool call), while a
+        tool-call response stays buffered and is only exposed via `AIMessage.tool_calls`.
         """
-        # messages_to_merge, state_messages = [], []
         if state.iterations == 0:
             if not state.input:
                 raise ValueError("state.input cannot be empty")
-            # Build the reasoning prompt
-            tool_descriptions = "\n".join([
-                f"- {tool.name}: {tool.description}"
-                for tool in self._tools
-            ])
-            system_prompt = self._system_prompt + "\n\nAvailable tools:\n" + tool_descriptions
-            state_messages = [SystemMessage(content=system_prompt), HumanMessage(content=state.input)]
+            state_messages = [SystemMessage(content=self._system_prompt), HumanMessage(content=state.input)]
             messages_to_merge = state_messages
 
         else:
@@ -134,25 +124,60 @@ class ReactAgent:
                 messages_to_merge.append(tool_msg)
                 messages_to_merge.append(human_message)
 
-        response = await self._llm.ainvoke(state_messages)
-        messages_to_merge.append(response)
+        ai_message = await self._stream_response(state_messages, writer)
+        messages_to_merge.append(ai_message)
 
-        thoughts, action_type, tool_name, tool_kwargs = parse_llm_response(response, self._logger)
+        tool_calls = ai_message.tool_calls
+        if tool_calls:
+            call = tool_calls[0]
+            action_type = constant.ACT
+            tool_name = call["name"]
+            tool_kwargs = call.get("args") or {}
+            tool_call_id = call.get("id") or str(uuid.uuid4())
+        else:
+            action_type, tool_name, tool_kwargs, tool_call_id = constant.REASON, "", {}, ""
+
         return {
             "messages": messages_to_merge,
-            "thoughts": thoughts,
+            "thoughts": extract_text_content(ai_message.content),
             "action_type": action_type,
-            "tool_name": tool_name or "",
+            "tool_name": tool_name,
             "tool_kwargs": tool_kwargs,
+            "tool_call_id": tool_call_id,
             "iterations": state.iterations + 1
         }
+
+    async def _stream_response(self, messages: list[BaseMessage], writer: StreamWriter) -> AIMessage:
+        """
+        Stream the LLM's response, forwarding text tokens live only once the response is
+        classified as a final answer (i.e. the model isn't streaming a tool call). Returns
+        the full accumulated `AIMessage`, tool calls included.
+        """
+        full_message: Optional[AIMessageChunk] = None
+        is_act: Optional[bool] = None
+
+        async for chunk in self._llm_with_tools.astream(messages):
+            full_message = chunk if full_message is None else full_message + chunk
+            if is_act:
+                continue
+            if chunk.tool_call_chunks:
+                is_act = True
+                writer(
+                    {"type": "act", "tools_invocation": [tool_item['name'] for tool_item in chunk.tool_call_chunks]})
+                continue
+            text = extract_text_content(chunk.content)
+            if text:
+                is_act = False
+                writer({"type": "answer", "token": text})
+
+        return full_message
     
     async def _act_node(self, state: AgentState) -> dict[str, Any]:
         """
-        Action node: executes the chosen action.
+        Action node: executes the chosen action. `state.tool_call_id` is already set by
+        `_reason_node` from the model's own tool call, so the `ToolMessage` sent back on
+        the next reasoning turn correlates correctly with it.
         """
-        tool_call_id = str(uuid.uuid4())
-        
         if state.tool_name in self._tool_dict:
             tool = self._tool_dict[state.tool_name]
             try:
@@ -161,11 +186,8 @@ class ReactAgent:
                 tool_observation = f"Error executing tool: {str(e)}"
         else:
             tool_observation = f"Unknown tool: {state.tool_name}"
-        
-        return {
-            "tool_observation": tool_observation,
-            "tool_call_id": tool_call_id
-        }
+
+        return {"tool_observation": tool_observation}
     
     def _should_continue(self, state: AgentState) -> str:
         """
@@ -178,15 +200,19 @@ class ReactAgent:
     async def _finalize_node(self, state: AgentState) -> dict[str, Any]:
         """
         Finalization node: prepares the final answer.
+
+        `truncated` is only True when the iteration cap was hit while the model still
+        wanted to act — in that case there is no answer text yet (nothing was streamed),
+        so this message must be sent as a one-off, non-streamed event. Otherwise the
+        answer was already streamed token-by-token from `_reason_node`.
         """
-        if state.iterations >= state.max_iterations:
-            answer = f"Maximum iterations reached. Last thought: {state.thoughts}"
+        truncated = state.action_type == constant.ACT and state.iterations >= state.max_iterations
+        if truncated:
+            answer = f"Maximum iterations reached while attempting to use tool '{state.tool_name}'."
         else:
             answer = state.thoughts
-            if answer.startswith(constant.FINAL_ANSWER_PREFIX):
-                answer = answer[len(constant.FINAL_ANSWER_PREFIX):]
-        
-        return {"answer": answer}
+
+        return {"answer": answer, "truncated": truncated}
     
     async def run(self, query: str, max_iterations: int = 10) -> str:
         """Run the ReAct agent on a query and return the final answer."""
@@ -198,36 +224,35 @@ class ReactAgent:
         self, query: str, max_iterations: int = 10
     ) -> AsyncGenerator[dict[str, Any], None]:
         """
-        Stream intermediate agent state events as the graph executes.
+        Stream agent events as the graph executes.
 
-        Yields one dict per node completion:
-          - {type: "reasoning", thought: str, iteration: int} (only when the reasoning
-            step leads to a tool call; the terminal thought is emitted as "answer" instead)
-          - {type: "acting",   tool: str, input: dict}
-          - {type: "answer",   token: str}
+        Yields:
+          - {type: "acting",  tool: str, input: dict}   once a tool call is decided
+          - {type: "answer",  token: str}                streamed token-by-token as the final
+            answer is generated; also emitted once, non-streamed, if the iteration cap is
+            hit while a tool call was still pending
         """
         initial_state = get_initial_state(query=query, max_iterations=max_iterations)
         last_tool_name: str = ""
         last_tool_kwargs: dict[str, Any] = {}
 
-        async for chunk in self._graph.astream(initial_state):
-            node_name, update = next(iter(chunk.items()))
+        async for stream_mode, payload in self._graph.astream(
+            initial_state, stream_mode=["updates", "custom"]
+        ):
+            if stream_mode == "custom":
+                yield payload
+                continue
 
+            node_name, update = next(iter(payload.items()))
             if node_name == constant.REASON:
                 last_tool_name = update.get("tool_name") or ""
                 last_tool_kwargs = update.get("tool_kwargs") or {}
-                if update.get("action_type") == constant.ACT:
-                    yield {
-                        "type": "reasoning",
-                        "thought": update.get("thoughts", ""),
-                        "iteration": update.get("iterations", 0),
-                    }
             elif node_name == constant.ACT:
                 yield {
                     "type": "acting",
                     "tool": last_tool_name,
                     "input": last_tool_kwargs,
                 }
-            elif node_name == constant.FINALIZE:
+            elif node_name == constant.FINALIZE and update.get("truncated"):
                 yield {"type": "answer", "token": update.get("answer", "")}
 

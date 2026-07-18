@@ -18,6 +18,7 @@ class AgentState(BaseModel):
     tool_observation: str = Field(default="", description="Result returned by the last tool call")
     tool_call_id: str = Field(default="", description="Unique identifier for tool call")
     answer: str = Field(default="", description="Final answer")
+    truncated: bool = Field(default=False, description="Whether the answer was cut short by the iteration cap")
     iterations: int = Field(default=0, description="Number of iterations")
     max_iterations: int = Field(default=10, description="Maximum iterations allowed")
 

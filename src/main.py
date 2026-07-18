@@ -8,8 +8,10 @@ responses through the Lambda Runtime API. The Function URL is configured with
 InvokeMode: RESPONSE_STREAM and the adapter with AWS_LWA_INVOKE_MODE=response_stream
 (see template.yaml) so tokens reach the browser as they're produced.
 
-The ReAct agent processes the full query (reason -> act -> finalize) and each
-intermediate/final event is forwarded to the client as a Server-Sent Event (SSE).
+The ReAct agent processes the full query (reason -> act -> finalize). Reasoning calls are
+streamed token-by-token from the LLM: responses starting with the "act:" sentinel are tool
+calls (buffered internally, surfaced as one short "acting" event), everything else is the
+final answer and is forwarded live as "answer" token events over Server-Sent Events (SSE).
 
 Frontend consumes the stream using the fetch() streaming API (not EventSource,
 because Lambda Function URLs require POST):
@@ -64,9 +66,8 @@ async def chat(request: Request) -> StreamingResponse:
     as SSE frames.
 
     Frame shapes:
-      data: {"type": "reasoning", "thought": "...", "iteration": N}  (only before a tool call)
-      data: {"type": "acting",    "tool": "...", "input": "..."}
-      data: {"type": "answer",    "token": "..."}
+      data: {"type": "acting", "tool": "...", "input": "..."}   (once a tool call is decided)
+      data: {"type": "answer", "token": "..."}                  (streamed token-by-token)
       data: [DONE]
     """
     body = await request.json()

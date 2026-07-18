@@ -1,6 +1,6 @@
 import inspect
 from typing import List, Callable
-from langchain_core.tools import Tool
+from langchain_core.tools import StructuredTool
 from src.service_utils.logger import get_logger
 from src.agent_tools.tools import ToolCallback
 
@@ -14,14 +14,20 @@ def extract_and_parse_doc(name: str, callback: Callable) -> str:
     return callback_doc
 
 
-def get_tools() -> List[Tool]:
+def get_tools() -> List[StructuredTool]:
+    """
+    Build tools from `ToolCallback`'s static methods using `StructuredTool`, whose
+    per-argument JSON schema is inferred from each method's type-hinted signature. This
+    is required for tool binding: the model relies on that schema (rather than a
+    hand-written description) to know which arguments each tool expects.
+    """
     tools = []
     for name, method in inspect.getmembers(ToolCallback):
         if not isinstance(inspect.getattr_static(ToolCallback, name), staticmethod):
             continue
         description = extract_and_parse_doc(name, method)
         tools.append(
-            Tool(
+            StructuredTool.from_function(
                 name=name,
                 func=method,
                 description=description
