@@ -113,37 +113,28 @@ class ReactAgent:
         else:
             messages_to_merge = []
             state_messages = state.messages
-            if state.tool_observation:
-                tool_msg = ToolMessage(
-                    content=state.tool_observation,
-                    tool_call_id=state.tool_call_id
-                )
+            if state.tool_observations:
+                tool_msgs = [
+                    ToolMessage(content=observation, tool_call_id=tool_call_id)
+                    for tool_call_id, observation in zip(state.tool_call_ids, state.tool_observations)
+                ]
                 human_message = HumanMessage(content=constant.OBSERVER_CONTENT)
-                state_messages.append(tool_msg)
+                state_messages.extend(tool_msgs)
                 state_messages.append(human_message)
-                messages_to_merge.append(tool_msg)
+                messages_to_merge.extend(tool_msgs)
                 messages_to_merge.append(human_message)
 
         ai_message = await self._stream_response(state_messages, writer)
         messages_to_merge.append(ai_message)
 
         tool_calls = ai_message.tool_calls
-        if tool_calls:
-            call = tool_calls[0]
-            action_type = constant.ACT
-            tool_name = call["name"]
-            tool_kwargs = call.get("args") or {}
-            tool_call_id = call.get("id") or str(uuid.uuid4())
-        else:
-            action_type, tool_name, tool_kwargs, tool_call_id = constant.REASON, "", {}, ""
-
         return {
             "messages": messages_to_merge,
             "thoughts": extract_text_content(ai_message.content),
-            "action_type": action_type,
-            "tool_name": tool_name,
-            "tool_kwargs": tool_kwargs,
-            "tool_call_id": tool_call_id,
+            "action_type": constant.ACT if tool_calls else constant.REASON,
+            "tool_names": [call["name"] for call in tool_calls],
+            "tool_kwargs_list": [call.get("args") or {} for call in tool_calls],
+            "tool_call_ids": [call.get("id") or str(uuid.uuid4()) for call in tool_calls],
             "iterations": state.iterations + 1
         }
 
@@ -174,20 +165,22 @@ class ReactAgent:
     
     async def _act_node(self, state: AgentState) -> dict[str, Any]:
         """
-        Action node: executes the chosen action. `state.tool_call_id` is already set by
-        `_reason_node` from the model's own tool call, so the `ToolMessage` sent back on
-        the next reasoning turn correlates correctly with it.
+        Action node: executes every tool call chosen in the last reasoning step (the model
+        may request more than one per turn). `state.tool_call_ids` is already set by
+        `_reason_node` from the model's own tool calls, so each resulting observation stays
+        aligned by index and can be correlated with its originating call via `ToolMessage`.
         """
-        if state.tool_name in self._tool_dict:
-            tool = self._tool_dict[state.tool_name]
+        tool_observations = []
+        for tool_name, tool_kwargs in zip(state.tool_names, state.tool_kwargs_list):
+            if tool_name not in self._tool_dict:
+                tool_observations.append(f"Unknown tool: {tool_name}")
+                continue
             try:
-                tool_observation = tool.func(**state.tool_kwargs)
+                tool_observations.append(self._tool_dict[tool_name].func(**tool_kwargs))
             except Exception as e:
-                tool_observation = f"Error executing tool: {str(e)}"
-        else:
-            tool_observation = f"Unknown tool: {state.tool_name}"
+                tool_observations.append(f"Error executing tool: {str(e)}")
 
-        return {"tool_observation": tool_observation}
+        return {"tool_observations": tool_observations}
     
     def _should_continue(self, state: AgentState) -> str:
         """
@@ -208,7 +201,8 @@ class ReactAgent:
         """
         truncated = state.action_type == constant.ACT and state.iterations >= state.max_iterations
         if truncated:
-            answer = f"Maximum iterations reached while attempting to use tool '{state.tool_name}'."
+            tools = ", ".join(state.tool_names)
+            answer = f"Maximum iterations reached while attempting to use tool(s): {tools}."
         else:
             answer = state.thoughts
 
@@ -233,8 +227,8 @@ class ReactAgent:
             hit while a tool call was still pending
         """
         initial_state = get_initial_state(query=query, max_iterations=max_iterations)
-        last_tool_name: str = ""
-        last_tool_kwargs: dict[str, Any] = {}
+        last_tool_names: list[str] = []
+        last_tool_kwargs_list: list[dict[str, Any]] = []
 
         async for stream_mode, payload in self._graph.astream(
             initial_state, stream_mode=["updates", "custom"]
@@ -245,14 +239,11 @@ class ReactAgent:
 
             node_name, update = next(iter(payload.items()))
             if node_name == constant.REASON:
-                last_tool_name = update.get("tool_name") or ""
-                last_tool_kwargs = update.get("tool_kwargs") or {}
+                last_tool_names = update.get("tool_names") or []
+                last_tool_kwargs_list = update.get("tool_kwargs_list") or []
             elif node_name == constant.ACT:
-                yield {
-                    "type": "acting",
-                    "tool": last_tool_name,
-                    "input": last_tool_kwargs,
-                }
+                for tool_name, tool_kwargs in zip(last_tool_names, last_tool_kwargs_list):
+                    yield {"type": "acting", "tool": tool_name, "input": tool_kwargs}
             elif node_name == constant.FINALIZE and update.get("truncated"):
                 yield {"type": "answer", "token": update.get("answer", "")}
 
