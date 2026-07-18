@@ -66,8 +66,8 @@ async def chat(request: Request) -> StreamingResponse:
     as SSE frames.
 
     Frame shapes:
-      data: {"type": "acting", "tool": "...", "input": "..."}   (once a tool call is decided)
-      data: {"type": "answer", "token": "..."}                  (streamed token-by-token)
+      data: {"type": "acting", "tool": "..."}     (once a tool call is decided)
+      data: {"type": "answer", "token": "..."}    (streamed token-by-token)
       data: [DONE]
     """
     body = await request.json()

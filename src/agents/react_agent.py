@@ -153,8 +153,6 @@ class ReactAgent:
                 continue
             if chunk.tool_call_chunks:
                 is_act = True
-                writer(
-                    {"type": "act", "tools_invocation": [tool_item['name'] for tool_item in chunk.tool_call_chunks]})
                 continue
             text = extract_text_content(chunk.content)
             if text:
@@ -221,14 +219,13 @@ class ReactAgent:
         Stream agent events as the graph executes.
 
         Yields:
-          - {type: "acting",  tool: str, input: dict}   once a tool call is decided
+          - {type: "acting",  tool: str}                once a tool call is decided
           - {type: "answer",  token: str}                streamed token-by-token as the final
             answer is generated; also emitted once, non-streamed, if the iteration cap is
             hit while a tool call was still pending
         """
         initial_state = get_initial_state(query=query, max_iterations=max_iterations)
         last_tool_names: list[str] = []
-        last_tool_kwargs_list: list[dict[str, Any]] = []
 
         async for stream_mode, payload in self._graph.astream(
             initial_state, stream_mode=["updates", "custom"]
@@ -240,10 +237,9 @@ class ReactAgent:
             node_name, update = next(iter(payload.items()))
             if node_name == constant.REASON:
                 last_tool_names = update.get("tool_names") or []
-                last_tool_kwargs_list = update.get("tool_kwargs_list") or []
             elif node_name == constant.ACT:
-                for tool_name, tool_kwargs in zip(last_tool_names, last_tool_kwargs_list):
-                    yield {"type": "acting", "tool": tool_name, "input": tool_kwargs}
+                for tool_name in last_tool_names:
+                    yield {"type": "acting", "tool": tool_name}
             elif node_name == constant.FINALIZE and update.get("truncated"):
                 yield {"type": "answer", "token": update.get("answer", "")}
 
