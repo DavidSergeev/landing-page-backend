@@ -33,6 +33,7 @@ because Lambda Function URLs require POST):
 import json
 from typing import AsyncGenerator
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from dotenv import load_dotenv
 from src.agent_auxiliary.agent_factory import AgentPattern, create_agent
@@ -44,6 +45,17 @@ load_dotenv()
 
 app = FastAPI()
 _logger = get_logger()
+
+# Handles CORS (including OPTIONS preflight) at the app level rather than relying
+# solely on the Lambda Function URL's Cors config, since this image also runs
+# outside Lambda (ECS/EKS/Fargate/local), where no such config exists.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=constant.ALLOWED_ORIGINS,
+    allow_methods=["POST"],
+    allow_headers=["content-type"],
+    max_age=86400,
+)
 
 # Created once per Lambda container (or process, when run locally) — reused on warm invocations.
 _agent: ReactAgent = create_agent(

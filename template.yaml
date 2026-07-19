@@ -47,16 +47,11 @@ Resources:
         # RESPONSE_STREAM allows the Lambda to push chunks as they arrive
         # instead of buffering the entire response
         InvokeMode: RESPONSE_STREAM
-        Cors:
-          AllowCredentials: false
-          AllowHeaders:
-            - content-type
-          AllowMethods:
-            - POST
-          AllowOrigins:
-            # GitHub Pages frontend — update if your domain changes
-            - "https://DavidSergeev.github.io"
-          MaxAge: 86400
+        # CORS is handled by the FastAPI app itself (see CORSMiddleware in main.py),
+        # not here — the Function URL's own Cors config and app-level CORS headers
+        # can't coexist without producing duplicate Access-Control-* headers on
+        # actual (non-preflight) requests. Keeping it app-level also keeps CORS
+        # working when this image runs outside Lambda (ECS/EKS/Fargate/local).
       Role: !GetAtt ChatFunctionRole.Arn
       Environment:
         Variables:

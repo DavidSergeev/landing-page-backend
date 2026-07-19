@@ -1,3 +1,8 @@
+ALLOWED_ORIGINS = [
+    "https://davidsergeev.github.io",
+    "http://localhost:5173",
+]
+
 DEFAULT_MODEL = "gemini-3.1-flash-lite"
 DEFAULT_TEMPERATURE = 0.7
 DEFAULT_MAX_TOKENS = 1024
