@@ -23,3 +23,5 @@ DEFAULT_SYSTEM_PROMPT = (
 )
 
 OBSERVER_CONTENT = "Evaluate the tool result above and continue reasoning toward a final answer."
+
+TOOL_NAME_SEPARATOR = " -> "

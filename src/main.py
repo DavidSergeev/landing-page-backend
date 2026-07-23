@@ -78,7 +78,9 @@ async def chat(request: Request) -> StreamingResponse:
     as SSE frames.
 
     Frame shapes:
-      data: {"type": "acting", "tool": "..."}     (once a tool call is decided)
+      data: {"type": "acting", "tool": "..."}     (once per reasoning step that calls tool(s);
+                                                     "tool" joins every name with " -> " when
+                                                     more than one was chosen)
       data: {"type": "answer", "token": "..."}    (streamed token-by-token)
       data: [DONE]
     """

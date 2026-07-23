@@ -219,7 +219,9 @@ class ReactAgent:
         Stream agent events as the graph executes.
 
         Yields:
-          - {type: "acting",  tool: str}                once a tool call is decided
+          - {type: "acting",  tool: str}                once per reasoning step that
+            requests tool call(s); `tool` is every tool name chosen in that step joined
+            with " -> " (a single name when only one was chosen)
           - {type: "answer",  token: str}                streamed token-by-token as the final
             answer is generated; also emitted once, non-streamed, if the iteration cap is
             hit while a tool call was still pending
@@ -237,9 +239,8 @@ class ReactAgent:
             node_name, update = next(iter(payload.items()))
             if node_name == constant.REASON:
                 last_tool_names = update.get("tool_names") or []
-            elif node_name == constant.ACT:
-                for tool_name in last_tool_names:
-                    yield {"type": "acting", "tool": tool_name}
+            elif node_name == constant.ACT and last_tool_names:
+                yield {"type": "acting", "tool": constant.TOOL_NAME_SEPARATOR.join(last_tool_names)}
             elif node_name == constant.FINALIZE and update.get("truncated"):
                 yield {"type": "answer", "token": update.get("answer", "")}
 
