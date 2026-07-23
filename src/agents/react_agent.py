@@ -167,6 +167,11 @@ class ReactAgent:
         may request more than one per turn). `state.tool_call_ids` is already set by
         `_reason_node` from the model's own tool calls, so each resulting observation stays
         aligned by index and can be correlated with its originating call via `ToolMessage`.
+
+        Tools are invoked via `StructuredTool.invoke` rather than calling the underlying
+        `func` directly, so raw JSON args from the model (e.g. ISO datetime strings) are
+        validated and coerced against each tool's `args_schema` first. The result is cast
+        to `str` since `tool_observations` must stay a list of strings for `AgentState`.
         """
         tool_observations = []
         for tool_name, tool_kwargs in zip(state.tool_names, state.tool_kwargs_list):
@@ -174,7 +179,8 @@ class ReactAgent:
                 tool_observations.append(f"Unknown tool: {tool_name}")
                 continue
             try:
-                tool_observations.append(self._tool_dict[tool_name].func(**tool_kwargs))
+                result = self._tool_dict[tool_name].invoke(tool_kwargs)
+                tool_observations.append(str(result))
             except Exception as e:
                 tool_observations.append(f"Error executing tool: {str(e)}")
 
