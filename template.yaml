@@ -19,6 +19,16 @@ Parameters:
       Version of the system prompt to load from DynamoDB.
       The Lambda will fetch the item with key "system_prompt_v<N>" from the config table.
 
+  UseLocalSysPrompt:
+    Type: String
+    Default: "False"
+    AllowedValues:
+      - "True"
+      - "False"
+    Description: >
+      When "True", the Lambda skips DynamoDB and uses the built-in
+      DEFAULT_SYSTEM_PROMPT constant instead, ignoring SysPromptVersion.
+
 Globals:
   Function:
     # 60 s gives the model enough time to finish a long response
@@ -59,6 +69,7 @@ Resources:
           CONFIG_TABLE_NAME: !Ref ConfigTable
           MEETINGS_TABLE_NAME: !Ref MeetingsTable
           SYS_PROMPT_VERSION: !Ref SysPromptVersion
+          USE_LOCAL_SYS_PROMPT: !Ref UseLocalSysPrompt
           # Lambda Web Adapter configuration — must match FunctionUrlConfig.InvokeMode above.
           AWS_LWA_INVOKE_MODE: response_stream
       # Keep Lambda warm on free tier (optional — remove if you prefer cold starts)

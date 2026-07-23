@@ -22,14 +22,14 @@ def get_tools() -> List[StructuredTool]:
     hand-written description) to know which arguments each tool expects.
     """
     tools = []
-    for name, method in inspect.getmembers(ToolCallback):
+    for name, callback in inspect.getmembers(ToolCallback):
         if not isinstance(inspect.getattr_static(ToolCallback, name), staticmethod):
             continue
-        description = extract_and_parse_doc(name, method)
+        description = extract_and_parse_doc(name, callback)
         tools.append(
             StructuredTool.from_function(
                 name=name,
-                func=method,
+                func=callback,
                 description=description
             )
         )
