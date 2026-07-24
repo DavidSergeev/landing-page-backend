@@ -25,7 +25,10 @@ python -m uvicorn src.main:app --reload --port 8000
 ```
 
 Requires a `.env` file (loaded via `python-dotenv`) with `GOOGLE_API_KEY_PATH`,
-`CONFIG_TABLE_NAME`, `MEETINGS_TABLE_NAME`, etc. — see `src/resources/constants.py`.
+`GMAIL_ADDRESS_PATH`, `GMAIL_APP_PASSWORD_PATH`, `CONFIG_TABLE_NAME`,
+`MEETINGS_TABLE_NAME`, etc. — see `src/resources/constants.py`. The Gmail
+password must be an [app password](https://myaccount.google.com/apppasswords),
+not the account password.
 
 ## Build & run with Docker
 

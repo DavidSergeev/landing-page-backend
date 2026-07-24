@@ -12,6 +12,16 @@ Parameters:
     Default: /landing/gemini-api-key
     Description: SSM Parameter Store path for the Google Gemini API key
 
+  GmailAddress:
+    Type: String
+    Default: /landing/gmail-address
+    Description: SSM Parameter Store path for the Gmail address used to send meeting notifications
+
+  GmailAppPassword:
+    Type: String
+    Default: /landing/gmail-app-password
+    Description: SSM Parameter Store path for the Gmail app password used to send meeting notifications
+
   SysPromptVersion:
     Type: Number
     Default: "1"
@@ -66,6 +76,8 @@ Resources:
       Environment:
         Variables:
           GOOGLE_API_KEY_PATH: !Ref GoogleApiKey
+          GMAIL_ADDRESS_PATH: !Ref GmailAddress
+          GMAIL_APP_PASSWORD_PATH: !Ref GmailAppPassword
           CONFIG_TABLE_NAME: !Ref ConfigTable
           MEETINGS_TABLE_NAME: !Ref MeetingsTable
           SYS_PROMPT_VERSION: !Ref SysPromptVersion
@@ -103,7 +115,9 @@ Resources:
                 Action:
                   - ssm:GetParameter
                 Resource:
-                  Fn::Sub: arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter${GoogleApiKey}
+                  - Fn::Sub: arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter${GoogleApiKey}
+                  - Fn::Sub: arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter${GmailAddress}
+                  - Fn::Sub: arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter${GmailAppPassword}
               - Effect: Allow
                 Action:
                   - dynamodb:GetItem
