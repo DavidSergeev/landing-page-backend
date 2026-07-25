@@ -31,7 +31,7 @@ Parameters:
 
   UseLocalSysPrompt:
     Type: String
-    Default: "False"
+    Default: "True"
     AllowedValues:
       - "True"
       - "False"
