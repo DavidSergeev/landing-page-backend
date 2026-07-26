@@ -1,5 +1,6 @@
 """
-FastAPI streaming handler for the personal AI assistant chat endpoint.
+FastAPI handler for the personal AI assistant chat endpoint, plus a small
+direct endpoint for the "Hire me" meeting-request form (POST /schedule-meeting).
 
 The managed Python Lambda runtime (awslambdaric) has no native response-streaming
 support — only Node.js does. So this Lambda is deployed as an ordinary ASGI app
@@ -31,13 +32,16 @@ because Lambda Function URLs require POST):
     }
 """
 import json
+from datetime import datetime
 from typing import AsyncGenerator
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 from dotenv import load_dotenv
 from src.agent_auxiliary.agent_factory import AgentPattern, create_agent
 from src.agents.react_agent import ReactAgent
+from src.agent_tools.tools import ToolCallback
 import src.resources.constants as constant
 from src.service_utils.logger import get_logger
 
@@ -65,6 +69,13 @@ _agent: ReactAgent = create_agent(
 )
 
 
+class ScheduleMeetingRequest(BaseModel):
+    """Body for the "Hire me" modal's direct meeting-request form."""
+    attendee_email: str
+    scheduled_at: datetime
+    description: str
+
+
 @app.get("/")
 async def health() -> dict:
     """Readiness probe polled by the Lambda Web Adapter during cold start."""
@@ -87,6 +98,22 @@ async def chat(request: Request) -> StreamingResponse:
     body = await request.json()
     query = (body.get("query") or "").strip()
     return StreamingResponse(_stream_response(query), media_type="text/event-stream")
+
+
+@app.post("/schedule-meeting")
+async def schedule_meeting(payload: ScheduleMeetingRequest) -> dict:
+    """
+    Handle the "Hire me" modal's form directly — bypasses the LLM agent entirely
+    and calls `ToolCallback.schedule_meeting` with the submitted fields, since the
+    modal already collects everything the tool needs as structured input.
+    """
+    status = ToolCallback.schedule_meeting(
+        title=constant.HIRE_MEETING_TITLE_TEMPLATE.format(email=payload.attendee_email),
+        scheduled_at=payload.scheduled_at,
+        description=payload.description,
+        attendee_email=payload.attendee_email,
+    )
+    return {"status": status}
 
 
 async def _stream_response(query: str) -> AsyncGenerator[str, None]:
