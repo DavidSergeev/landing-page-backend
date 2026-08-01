@@ -44,6 +44,7 @@ from src.agents.react_agent import ReactAgent
 from src.agent_tools.tools import ToolCallback
 import src.resources.constants as constant
 from src.service_utils.logger import get_logger
+import uvicorn
 
 load_dotenv()
 
@@ -134,6 +135,6 @@ async def _stream_response(query: str) -> AsyncGenerator[str, None]:
 
 
 if __name__ == "__main__":
-    import uvicorn
+
 
     uvicorn.run(app, host="0.0.0.0", port=8000)
