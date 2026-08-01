@@ -1,4 +1,5 @@
 ALLOWED_ORIGINS = [
+    "https://david-slutsky.com",
     "https://davidsergeev.github.io",
     "http://localhost:5173",
 ]
