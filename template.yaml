@@ -39,6 +39,14 @@ Parameters:
       When "True", the Lambda skips DynamoDB and uses the built-in
       DEFAULT_SYSTEM_PROMPT constant instead, ignoring SysPromptVersion.
 
+  WorkerPrincipalArn:
+    Type: String
+    Description: >
+      ARN of the IAM user/role whose access key + secret are stored as
+      secrets in the landing-api-worker Cloudflare Worker. Granted
+      lambda:InvokeFunctionUrl and lambda:InvokeFunction below so it's the
+      only caller able to invoke the AWS_IAM-protected Function URL.
+
 Globals:
   Function:
     # 60 s gives the model enough time to finish a long response
@@ -63,7 +71,11 @@ Resources:
       PackageType: Image
       Description: Streaming SSE chat handler powered by Gemini
       FunctionUrlConfig:
-        AuthType: NONE
+        # AWS_IAM restricts invocation to callers who can sign requests with
+        # SigV4 — see ChatFunctionUrlInvokePermission / ChatFunctionInvokePermission
+        # below. In front of the browser sits the landing-api-worker Cloudflare
+        # Worker, which holds the only credentials allowed to sign these calls.
+        AuthType: AWS_IAM
         # RESPONSE_STREAM allows the Lambda to push chunks as they arrive
         # instead of buffering the entire response
         InvokeMode: RESPONSE_STREAM
@@ -90,6 +102,26 @@ Resources:
       #     Type: Schedule
       #     Properties:
       #       Schedule: rate(5 minutes)
+
+  # AWS_IAM Function URLs require the calling principal to hold BOTH of these
+  # permissions — granting only one of them results in a 403 AccessDeniedException.
+  ChatFunctionUrlInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ChatFunction
+      Action: lambda:InvokeFunctionUrl
+      Principal: !Ref WorkerPrincipalArn
+      FunctionUrlAuthType: AWS_IAM
+
+  ChatFunctionInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ChatFunction
+      Action: lambda:InvokeFunction
+      Principal: !Ref WorkerPrincipalArn
+      # Restricts this grant to calls made through the function URL, so
+      # WorkerPrincipalArn can't invoke the function any other way.
+      InvokedViaFunctionUrl: true
 
   ChatFunctionRole:
     Type: AWS::IAM::Role
@@ -163,8 +195,9 @@ Resources:
 Outputs:
   ChatFunctionUrl:
     Description: >
-      Lambda Function URL — paste this into your frontend as the chat endpoint.
-      If Cloudflare is in front, point your Cloudflare DNS to this URL instead.
+      Lambda Function URL (AuthType: AWS_IAM). Not directly browser-reachable —
+      set it as LAMBDA_URL in landing-api-worker/wrangler.toml, which signs
+      requests with WorkerPrincipalArn's credentials before forwarding them.
     Value: !GetAtt ChatFunctionUrl.FunctionUrl
   ChatFunctionArn:
     Description: Lambda function ARN
