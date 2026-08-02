@@ -1,7 +1,7 @@
 """
 State definitions for LangGraph-based agents.
 """
-from typing import Annotated, Sequence
+from typing import Annotated, Optional, Sequence
 from langchain_core.messages import BaseMessage
 from pydantic import BaseModel, Field
 import operator
@@ -10,6 +10,7 @@ import operator
 class AgentState(BaseModel):
     """Base state for all agent patterns."""
     input: str = Field(default="", description="The input query from the user")
+    caller_ip: Optional[str] = Field(default=None, description="Caller's IP, forwarded by landing-api-worker; used for tool-level rate limiting")
     messages: Annotated[Sequence[BaseMessage], operator.add] = Field(default_factory=list, description="History of messages in the conversation")
     thoughts: str = Field(default="", description="The current thought or reasoning")
     action_type: str = Field(default="", description="Whether the LLM chose to \"reason\" or \"act\"")

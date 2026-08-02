@@ -92,6 +92,7 @@ Resources:
           GMAIL_APP_PASSWORD_PATH: !Ref GmailAppPassword
           CONFIG_TABLE_NAME: !Ref ConfigTable
           MEETINGS_TABLE_NAME: !Ref MeetingsTable
+          RATE_LIMITS_TABLE_NAME: !Ref RateLimitsTable
           SYS_PROMPT_VERSION: !Ref SysPromptVersion
           USE_LOCAL_SYS_PROMPT: !Ref UseLocalSysPrompt
           # Lambda Web Adapter configuration — must match FunctionUrlConfig.InvokeMode above.
@@ -163,6 +164,7 @@ Resources:
                 Resource:
                   - !GetAtt ConfigTable.Arn
                   - !GetAtt MeetingsTable.Arn
+                  - !GetAtt RateLimitsTable.Arn
 
   ConfigTable:
     Type: AWS::DynamoDB::Table
@@ -191,6 +193,26 @@ Resources:
           KeyType: HASH
         - AttributeName: scheduled_at
           KeyType: RANGE
+
+  # Backs the 24h "one meeting per user" cooldown shared by /schedule-meeting
+  # and the agent's schedule_meeting tool call — see rate_limit_repository.py.
+  # Items are keyed by a hashed identity (email or caller IP) and self-expire
+  # via TTL; blocked_until (not just item existence) is the actual gate, since
+  # DynamoDB's TTL sweep can lag up to ~48h after expiry.
+  RateLimitsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: landing-rate-limits
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: identity_hash
+          AttributeType: S
+      KeySchema:
+        - AttributeName: identity_hash
+          KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
 
 Outputs:
   ChatFunctionUrl:

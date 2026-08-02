@@ -38,3 +38,9 @@ OBSERVER_CONTENT = "Evaluate the tool result above and continue reasoning toward
 TOOL_NAME_SEPARATOR = " -> "
 
 HIRE_MEETING_TITLE_TEMPLATE = "Meeting request from {email}"
+
+# Name `get_tools()` (tools_auxiliary.py) assigns the schedule_meeting tool —
+# derived from ToolCallback.schedule_meeting's function name — used by
+# react_agent._act_node to single it out for the rate-limit check below.
+SCHEDULE_MEETING_TOOL_NAME = "schedule_meeting"
+SCHEDULE_MEETING_BLOCK_TTL_SECONDS = 24 * 60 * 60

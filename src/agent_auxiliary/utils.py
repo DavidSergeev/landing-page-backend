@@ -1,11 +1,12 @@
-from typing import Any, Union
+from typing import Any, Optional, Union
 from src.agent_auxiliary.agent_state import AgentState
 
 
-def get_initial_state(query: str, max_iterations: int) -> AgentState:
+def get_initial_state(query: str, max_iterations: int, caller_ip: Optional[str] = None) -> AgentState:
     return AgentState(
         input=query,
-        max_iterations=max_iterations
+        max_iterations=max_iterations,
+        caller_ip=caller_ip,
     )
 
 

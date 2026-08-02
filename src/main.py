@@ -33,15 +33,16 @@ because Lambda Function URLs require POST):
 """
 import json
 from datetime import datetime
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Optional
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel
 from dotenv import load_dotenv
 from src.agent_auxiliary.agent_factory import AgentPattern, create_agent
 from src.agents.react_agent import ReactAgent
-from src.agent_tools.tools import ToolCallback
+from src.agent_tools.tools import MeetingScheduledStatus, ToolCallback
+from src.service_utils import rate_limiter
 import src.resources.constants as constant
 from src.service_utils.logger import get_logger
 import uvicorn
@@ -98,26 +99,42 @@ async def chat(request: Request) -> StreamingResponse:
     """
     body = await request.json()
     query = (body.get("query") or "").strip()
-    return StreamingResponse(_stream_response(query), media_type="text/event-stream")
+    caller_ip = request.headers.get("x-real-ip")
+    return StreamingResponse(_stream_response(query, caller_ip), media_type="text/event-stream")
 
 
 @app.post("/schedule-meeting")
-async def schedule_meeting(payload: ScheduleMeetingRequest) -> dict:
+async def schedule_meeting(payload: ScheduleMeetingRequest, request: Request) -> Response:
     """
     Handle the "Hire me" modal's form directly — bypasses the LLM agent entirely
     and calls `ToolCallback.schedule_meeting` with the submitted fields, since the
     modal already collects everything the tool needs as structured input.
+
+    Enforces the shared 24h "one meeting per user" cooldown (see
+    `src.service_utils.rate_limiter`) — identity is `attendee_email`, falling back to
+    the caller's IP (`x-real-ip`, forwarded by landing-api-worker) when absent. The
+    same check also guards the agent's schedule_meeting tool call from "/".
     """
+    identity = rate_limiter.resolve_identity(payload.attendee_email, request.headers.get("x-real-ip"))
+    if rate_limiter.is_blocked(identity):
+        return JSONResponse(
+            {"error": "You've already scheduled a meeting recently. Please try again in 24 hours."},
+            status_code=429,
+            headers={"Retry-After": str(constant.SCHEDULE_MEETING_BLOCK_TTL_SECONDS)},
+        )
+
     status = ToolCallback.schedule_meeting(
         title=constant.HIRE_MEETING_TITLE_TEMPLATE.format(email=payload.attendee_email),
         scheduled_at=payload.scheduled_at,
         description=payload.description,
         attendee_email=payload.attendee_email,
     )
-    return {"status": status}
+    if status != MeetingScheduledStatus.NOT_SCHEDULED:
+        rate_limiter.mark_blocked(identity)
+    return JSONResponse({"status": status})
 
 
-async def _stream_response(query: str) -> AsyncGenerator[str, None]:
+async def _stream_response(query: str, caller_ip: Optional[str] = None) -> AsyncGenerator[str, None]:
     """Drive astream_events and yield each event as an SSE frame."""
     if not query:
         yield 'data: {"error": "Missing or empty query"}\n\n'
@@ -125,7 +142,7 @@ async def _stream_response(query: str) -> AsyncGenerator[str, None]:
         return
 
     try:
-        async for event in _agent.astream_events(query):
+        async for event in _agent.astream_events(query, caller_ip=caller_ip):
             yield f"data: {json.dumps(event)}\n\n"
     except Exception as exc:
         _logger.error("Streaming error: %s", exc)

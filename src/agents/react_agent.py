@@ -7,8 +7,10 @@ from langgraph.types import StreamWriter
 from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
 from src.service_utils.logger import get_logger
+from src.service_utils import rate_limiter
 from src.agent_auxiliary.agent_state import AgentState
 from src.agent_auxiliary.utils import extract_text_content, get_initial_state
+from src.agent_tools.tools import MeetingScheduledStatus
 from src.agent_tools.tools_auxiliary import get_tools
 from src.db.config_repository import get_system_prompt
 import src.resources.constants as constant
@@ -176,15 +178,35 @@ class ReactAgent:
         `func` directly, so raw JSON args from the model (e.g. ISO datetime strings) are
         validated and coerced against each tool's `args_schema` first. The result is cast
         to `str` since `tool_observations` must stay a list of strings for `AgentState`.
+
+        schedule_meeting additionally enforces the shared 24h "one meeting per user"
+        cooldown (see `src.service_utils.rate_limiter`) before invoking it — identity is
+        the model-supplied attendee_email if any, else `state.caller_ip`. This mirrors the
+        check in main.py's /schedule-meeting route, since both are the only paths that
+        reach `ToolCallback.schedule_meeting`.
         """
         tool_observations = []
         for tool_name, tool_kwargs in zip(state.tool_names, state.tool_kwargs_list):
             if tool_name not in self._tool_dict:
                 tool_observations.append(f"Unknown tool: {tool_name}")
                 continue
+
+            is_schedule_meeting = tool_name == constant.SCHEDULE_MEETING_TOOL_NAME
+            identity = None
+            if is_schedule_meeting:
+                identity = rate_limiter.resolve_identity(tool_kwargs.get("attendee_email"), state.caller_ip)
+                if rate_limiter.is_blocked(identity):
+                    tool_observations.append(
+                        "This user already scheduled a meeting recently. Tell them they can "
+                        "only book one meeting per day and to try again later."
+                    )
+                    continue
+
             try:
                 result = self._tool_dict[tool_name].invoke(tool_kwargs)
                 tool_observations.append(str(result))
+                if is_schedule_meeting and result != MeetingScheduledStatus.NOT_SCHEDULED:
+                    rate_limiter.mark_blocked(identity)
             except Exception as e:
                 tool_observations.append(f"Error executing tool: {str(e)}")
 
@@ -216,17 +238,21 @@ class ReactAgent:
 
         return {"answer": answer, "truncated": truncated}
     
-    async def run(self, query: str, max_iterations: int = 10) -> str:
+    async def run(self, query: str, max_iterations: int = 10, caller_ip: Optional[str] = None) -> str:
         """Run the ReAct agent on a query and return the final answer."""
-        initial_state = get_initial_state(query=query, max_iterations=max_iterations)
+        initial_state = get_initial_state(query=query, max_iterations=max_iterations, caller_ip=caller_ip)
         result = await self._graph.ainvoke(initial_state)
         return result["answer"]
 
     async def astream_events(
-        self, query: str, max_iterations: int = 10
+        self, query: str, max_iterations: int = 10, caller_ip: Optional[str] = None
     ) -> AsyncGenerator[dict[str, Any], None]:
         """
         Stream agent events as the graph executes.
+
+        `caller_ip` is forwarded by landing-api-worker (signed `x-real-ip` header) and used
+        only as a fallback identity for the schedule_meeting tool's rate limit — see
+        `_act_node` — when the model doesn't supply an attendee_email.
 
         Yields:
           - {type: "acting",  tool: str}                once per reasoning step that
@@ -236,7 +262,7 @@ class ReactAgent:
             answer is generated; also emitted once, non-streamed, if the iteration cap is
             hit while a tool call was still pending
         """
-        initial_state = get_initial_state(query=query, max_iterations=max_iterations)
+        initial_state = get_initial_state(query=query, max_iterations=max_iterations, caller_ip=caller_ip)
         last_tool_names: list[str] = []
 
         async for stream_mode, payload in self._graph.astream(
