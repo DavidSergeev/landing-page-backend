@@ -1,4 +1,4 @@
-AWSTemplateFormatVersion: '2010-09-09'
+AWSTemplateFormatVersion: "2010-09-09"
 Transform: AWS::Serverless-2016-10-31
 
 Description: >
@@ -50,7 +50,7 @@ Parameters:
 Globals:
   Function:
     # 60 s gives the model enough time to finish a long response
-    Timeout: 60
+    Timeout: 180
     # 256 MB is sufficient; LangChain + Gemini client are lightweight
     MemorySize: 256
 

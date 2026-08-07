@@ -103,6 +103,21 @@ async def chat(request: Request) -> StreamingResponse:
     return StreamingResponse(_stream_response(query, caller_ip), media_type="text/event-stream")
 
 
+@app.post("/wake-up")
+async def wake_up() -> JSONResponse:
+    """
+    Lightweight no-op hit by the frontend when the user opens the chat, so
+    this container cold-starts (imports, agent/model client construction)
+    ahead of the first real chat message instead of during it.
+
+    landing-api-worker throttles this to one call per caller per 2h (Workers
+    KV) before it ever reaches here — every request that does reach this
+    handler should be treated as a genuine warm-up, so no rate limiting is
+    duplicated on this side.
+    """
+    return JSONResponse({"message": "warm up started"})
+
+
 @app.post("/schedule-meeting")
 async def schedule_meeting(payload: ScheduleMeetingRequest, request: Request) -> Response:
     """
