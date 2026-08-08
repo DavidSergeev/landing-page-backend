@@ -34,7 +34,7 @@ async def main():
 
     # Query expected to trigger the get_user_info tool, exercising the "acting" event
     # and the act/final-answer detection on the follow-up reasoning call.
-    await stream_query(agent, "Tell me about David's background and experience.")
+    await stream_query(agent, "Why did David choose to send his CV to my company? Company name: Microsoft")
 
 
 if __name__ == "__main__":
