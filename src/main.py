@@ -99,7 +99,7 @@ async def chat(request: Request) -> StreamingResponse:
     """
     body = await request.json()
     query = (body.get("query") or "").strip()
-    caller_ip = request.headers.get("x-real-ip")
+    caller_ip = request.headers.get("x-client-ip")
     return StreamingResponse(_stream_response(query, caller_ip), media_type="text/event-stream")
 
 
@@ -127,10 +127,10 @@ async def schedule_meeting(payload: ScheduleMeetingRequest, request: Request) ->
 
     Enforces the shared 24h "one meeting per user" cooldown (see
     `src.service_utils.rate_limiter`) — identity is `attendee_email`, falling back to
-    the caller's IP (`x-real-ip`, forwarded by landing-api-worker) when absent. The
+    the caller's IP (`x-client-ip`, forwarded by landing-api-worker) when absent. The
     same check also guards the agent's schedule_meeting tool call from "/".
     """
-    identity = rate_limiter.resolve_identity(payload.attendee_email, request.headers.get("x-real-ip"))
+    identity = rate_limiter.resolve_identity(payload.attendee_email, request.headers.get("x-client-ip"))
     if rate_limiter.is_blocked(identity):
         return JSONResponse(
             {"error": "You've already scheduled a meeting recently. Please try again in 24 hours."},

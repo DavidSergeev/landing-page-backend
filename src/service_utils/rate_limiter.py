@@ -6,7 +6,7 @@ react_agent.py's _act_node, respectively).
 
 Identity is the caller's attendee_email when given — it identifies the
 person, not just their network/device — falling back to their IP (forwarded
-by landing-api-worker as the signed `x-real-ip` header) when no email was
+by landing-api-worker as the signed `x-client-ip` header) when no email was
 supplied, e.g. an anonymous chat visitor who never gave one.
 """
 from typing import Optional

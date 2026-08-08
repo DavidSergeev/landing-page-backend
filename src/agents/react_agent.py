@@ -250,7 +250,7 @@ class ReactAgent:
         """
         Stream agent events as the graph executes.
 
-        `caller_ip` is forwarded by landing-api-worker (signed `x-real-ip` header) and used
+        `caller_ip` is forwarded by landing-api-worker (signed `x-client-ip` header) and used
         only as a fallback identity for the schedule_meeting tool's rate limit — see
         `_act_node` — when the model doesn't supply an attendee_email.
 
